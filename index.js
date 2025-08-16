@@ -1,8 +1,18 @@
 import { Client, GatewayIntentBits, PermissionFlagsBits } from "discord.js";
 import cron from "node-cron";
 import dotenv from "dotenv";
+import express from "express";
 
 dotenv.config();
+
+// Initialize Express
+const app = express();
+const port = process.env.PORT || 3000;
+
+// Health check endpoint
+app.get('/', (req, res) => {
+  res.send('Discord bot is running!');
+});
 
 const client = new Client({
   intents: [
@@ -99,4 +109,10 @@ client.on("messageCreate", async (msg) => {
 });
 
 // === START ===
+// Start the Express server
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
+});
+
+// Start the Discord bot
 client.login(process.env.BOT_TOKEN);
