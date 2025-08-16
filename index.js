@@ -9,6 +9,22 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 
+// === ENV CONFIGURATION ===
+const GUILD_ID = process.env.GUILD_ID;
+const CATEGORY_ID = process.env.CATEGORY_ID;
+const PATREON_ROLE = process.env.PATREON_ROLE;
+const SOUL_ROLE = process.env.SOUL_ROLE;
+const DIAMOND_ROLE = process.env.DIAMOND_ROLE;
+const GALAXY_ROLE = process.env.GALAXY_ROLE;
+
+// Access windows (months back)
+const ACCESS_WINDOWS = {
+  [PATREON_ROLE]: 0, // current only
+  [SOUL_ROLE]: 1,    // current + 1 back
+  [DIAMOND_ROLE]: 2, // current + 2 back
+  [GALAXY_ROLE]: 3   // current + 3 back
+};
+
 // Log environment check
 console.log('🔍 Environment Check:');
 console.log(`- PORT: ${port}`);
@@ -33,22 +49,6 @@ const client = new Client({
     GatewayIntentBits.GuildMessages
   ]
 });
-
-// === ENV CONFIGURATION ===
-const GUILD_ID = process.env.GUILD_ID;
-const CATEGORY_ID = process.env.CATEGORY_ID;
-const PATREON_ROLE = process.env.PATREON_ROLE;
-const SOUL_ROLE = process.env.SOUL_ROLE;
-const DIAMOND_ROLE = process.env.DIAMOND_ROLE;
-const GALAXY_ROLE = process.env.GALAXY_ROLE;
-
-// Access windows (months back)
-const ACCESS_WINDOWS = {
-  [PATREON_ROLE]: 0, // current only
-  [SOUL_ROLE]: 1,    // current + 1 back
-  [DIAMOND_ROLE]: 2, // current + 2 back
-  [GALAXY_ROLE]: 3   // current + 3 back
-};
 
 // === HELPERS ===
 function getMonthKey(year, month) {
