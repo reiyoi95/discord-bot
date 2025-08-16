@@ -1,103 +1,73 @@
-import "dotenv/config";
-import {
-  Client,
-  GatewayIntentBits,
-  PermissionsBitField,
-} from "discord.js";
+import { Client, GatewayIntentBits } from "discord.js";
+import express from "express";
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
-});
+const TOKEN = process.env.DISCORD_TOKEN;
+const GUILD_ID = process.env.GUILD_ID;
+const CATEGORY_ID = process.env.CATEGORY_ID;
+const ROLE_ID = process.env.ROLE_ID;
 
-async function syncPosts(guild) {
-  console.log("🔄 Running syncPosts...");
-
-  try {
-    const categoryId = process.env.CATEGORY_ID;
-    const starRoleId = process.env.STAR_TIER_ROLE_ID;
-    const galaxyRoleId = process.env.GALAXY_TIER_ROLE_ID;
-
-    if (!categoryId || !starRoleId || !galaxyRoleId) {
-      console.error("❌ Missing one or more env vars (CATEGORY_ID, STAR_TIER_ROLE_ID, GALAXY_TIER_ROLE_ID)");
-      return;
-    }
-
-    console.log("✅ Env vars loaded");
-    console.log("➡️ CATEGORY_ID:", categoryId);
-    console.log("➡️ STAR_TIER_ROLE_ID:", starRoleId);
-    console.log("➡️ GALAXY_TIER_ROLE_ID:", galaxyRoleId);
-
-    const category = guild.channels.cache.get(categoryId);
-    if (!category) {
-      console.error("❌ Category not found in guild:", categoryId);
-      return;
-    }
-    console.log("✅ Found category:", category.name);
-
-    // Generate month channels (current + 2 months ahead)
-    const now = new Date();
-    for (let i = 0; i < 3; i++) {
-      const targetDate = new Date(now.getFullYear(), now.getMonth() + i, 1);
-      const channelName = `${targetDate.getFullYear()}-${String(
-        targetDate.getMonth() + 1
-      ).padStart(2, "0")}-posts`;
-
-      let channel = category.children.cache.find(
-        (ch) => ch.name === channelName
-      );
-      if (!channel) {
-        console.log(`📂 Creating channel: ${channelName}`);
-        channel = await guild.channels.create({
-          name: channelName,
-          type: 0, // text
-          parent: category.id,
-        });
-      } else {
-        console.log(`ℹ️ Channel already exists: ${channelName}`);
-      }
-
-      // Reset permissions
-      console.log(`🔑 Updating permissions for: ${channel.name}`);
-      await channel.permissionOverwrites.set([
-        {
-          id: guild.roles.everyone.id,
-          deny: [PermissionsBitField.Flags.ViewChannel],
-        },
-        {
-          id: starRoleId,
-          allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory],
-        },
-        {
-          id: galaxyRoleId,
-          allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory],
-        },
-      ]);
-    }
-
-    console.log("✅ syncPosts finished!");
-  } catch (err) {
-    console.error("❌ Error in syncPosts:", err);
-  }
+if (!TOKEN) {
+  console.error("❌ DISCORD_TOKEN is not set!");
+  process.exit(1);
 }
 
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+});
+
+// --- Discord Bot Login ---
 client.once("ready", () => {
-  console.log(`🤖 Logged in as ${client.user.tag}`);
+  console.log(`✅ Logged in as ${client.user.tag}`);
 });
 
 client.on("messageCreate", async (message) => {
-  if (message.author.bot) return;
-
-  console.log(`💬 Message received: "${message.content}" from ${message.author.tag}`);
-
   if (message.content === "!syncposts") {
-    console.log("📢 !syncposts command detected");
-    await syncPosts(message.guild);
-    await message.reply("✅ Synced posts! Check logs for details.");
+    console.log("⚡ !syncposts command received");
+
+    try {
+      const guild = await client.guilds.fetch(GUILD_ID);
+      console.log(`📌 Found guild: ${guild.name}`);
+
+      const category = guild.channels.cache.get(CATEGORY_ID);
+      if (!category) {
+        console.error("❌ Category not found!");
+        return;
+      }
+      console.log(`📂 Found category: ${category.name}`);
+
+      // Example: create a new channel
+      const channelName = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-posts`;
+      let channel = guild.channels.cache.find(
+        (c) => c.name === channelName && c.parentId === CATEGORY_ID
+      );
+
+      if (!channel) {
+        channel = await guild.channels.create({
+          name: channelName,
+          type: 0, // GUILD_TEXT
+          parent: CATEGORY_ID,
+        });
+        console.log(`📌 Created new channel: ${channel.name}`);
+      } else {
+        console.log(`ℹ️ Channel already exists: ${channel.name}`);
+      }
+
+      await message.reply(`✅ Synced posts into #${channel.name}`);
+    } catch (err) {
+      console.error("❌ Error in !syncposts:", err);
+    }
   }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+client.login(TOKEN);
+
+// --- Express Server for Render ---
+const app = express();
+app.get("/", (req, res) => {
+  res.send("🤖 Discord Bot is running!");
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🌐 Express server running on port ${PORT}`);
+});
