@@ -1,117 +1,102 @@
-import { Client, GatewayIntentBits, PermissionsBitField } from "discord.js";
+import { Client, GatewayIntentBits, PermissionFlagsBits } from "discord.js";
 import cron from "node-cron";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildMembers],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages
+  ]
 });
 
-// === CONFIGURATION ===
-const GUILD_ID = "YOUR_SERVER_ID";
-const CATEGORY_ID = "YOUR_CATEGORY_ID"; // "Post Channels" category
-const ROLE_IDS = {
-  patreon: "ROLE_ID_PATREON",
-  soulFriend: "ROLE_ID_SOULFRIEND",
-  diamond: "ROLE_ID_DIAMOND",
-  galaxy: "ROLE_ID_GALAXY",
+// === ENV CONFIGURATION ===
+const GUILD_ID = process.env.GUILD_ID;
+const CATEGORY_ID = process.env.CATEGORY_ID;
+const PATREON_ROLE = process.env.PATREON_ROLE;
+const SOUL_ROLE = process.env.SOUL_ROLE;
+const DIAMOND_ROLE = process.env.DIAMOND_ROLE;
+const GALAXY_ROLE = process.env.GALAXY_ROLE;
+
+// Access windows (months back)
+const ACCESS_WINDOWS = {
+  [PATREON_ROLE]: 0, // current only
+  [SOUL_ROLE]: 1,    // current + 1 back
+  [DIAMOND_ROLE]: 2, // current + 2 back
+  [GALAXY_ROLE]: 3   // current + 3 back
 };
 
-// === Helper: format YYYY-MM ===
-function getMonthString(date) {
-  return date.toISOString().slice(0, 7); // "2025-09"
+// === HELPERS ===
+function getMonthKey(year, month) {
+  return `${year}-${String(month).padStart(2, "0")}-posts`;
 }
 
-// === Helper: calculate months to keep ===
-function getAllowedMonths(monthsBack) {
+function getCurrentAndPastMonths(n) {
   const now = new Date();
-  let months = [];
-  for (let i = 0; i < monthsBack; i++) {
+  const months = [];
+
+  for (let i = 0; i <= n; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push(getMonthString(d));
+    months.push(getMonthKey(d.getFullYear(), d.getMonth() + 1));
   }
   return months;
 }
 
-// === Core: monthly sync ===
-async function syncPosts() {
-  const guild = await client.guilds.fetch(GUILD_ID);
-  const channels = await guild.channels.fetch();
+async function syncPosts(guild) {
+  const category = guild.channels.cache.get(CATEGORY_ID);
+  if (!category) return console.error("Category not found");
 
+  // Create current month channel if missing
   const now = new Date();
-  const currentMonth = getMonthString(now);
-  const channelName = `${currentMonth}-posts`;
-
-  // 1. Create channel if not exist
-  let postChannel = channels.find(
-    (ch) => ch.name === channelName && ch.parentId === CATEGORY_ID
-  );
-  if (!postChannel) {
-    postChannel = await guild.channels.create({
-      name: channelName,
-      type: 0, // text channel
-      parent: CATEGORY_ID,
-      permissionOverwrites: [
-        { id: ROLE_IDS.patreon, allow: [PermissionsBitField.Flags.ViewChannel] },
-        { id: ROLE_IDS.soulFriend, allow: [PermissionsBitField.Flags.ViewChannel] },
-        { id: ROLE_IDS.diamond, allow: [PermissionsBitField.Flags.ViewChannel] },
-        { id: ROLE_IDS.galaxy, allow: [PermissionsBitField.Flags.ViewChannel] },
-      ],
-    });
-    console.log(`📌 Created new channel: ${channelName}`);
-  }
-
-  // 2. Calculate allowed months
-  const diamondAllowed = getAllowedMonths(2); // current + last
-  const galaxyAllowed = getAllowedMonths(4);  // current + 3 back
-
-  // 3. Loop through all post channels and set permissions
-  for (const [, channel] of channels) {
-    if (!channel.parentId || channel.parentId !== CATEGORY_ID) continue;
-
-    const name = channel.name;
-    const match = name.match(/^(\d{4}-\d{2})-posts$/);
-    if (!match) continue;
-
-    const channelMonth = match[1];
-
-    // Patreon + Soul Friend → always access
-    await channel.permissionOverwrites.edit(ROLE_IDS.patreon, {
-      ViewChannel: true,
-    });
-    await channel.permissionOverwrites.edit(ROLE_IDS.soulFriend, {
-      ViewChannel: true,
-    });
-
-    // Diamond role → only if month is within allowed
-    await channel.permissionOverwrites.edit(ROLE_IDS.diamond, {
-      ViewChannel: diamondAllowed.includes(channelMonth),
-    });
-
-    // Galaxy role → only if month is within allowed
-    await channel.permissionOverwrites.edit(ROLE_IDS.galaxy, {
-      ViewChannel: galaxyAllowed.includes(channelMonth),
+  const currentName = getMonthKey(now.getFullYear(), now.getMonth() + 1);
+  let currentChannel = category.children.cache.find(ch => ch.name === currentName);
+  if (!currentChannel) {
+    currentChannel = await guild.channels.create({
+      name: currentName,
+      type: 0, // GUILD_TEXT
+      parent: CATEGORY_ID
     });
   }
 
-  console.log("✅ Synced post channel permissions");
+  // Iterate over roles and enforce access
+  for (const [roleId, monthsBack] of Object.entries(ACCESS_WINDOWS)) {
+    const allowed = getCurrentAndPastMonths(monthsBack);
+
+    for (const ch of category.children.cache.values()) {
+      if (!ch.isTextBased()) continue;
+      if (allowed.includes(ch.name)) {
+        await ch.permissionOverwrites.edit(roleId, { ViewChannel: true });
+      } else {
+        await ch.permissionOverwrites.edit(roleId, { ViewChannel: false });
+      }
+    }
+  }
 }
 
-// === Schedule: run every month on 1st at 00:00 ===
-cron.schedule("0 0 1 * *", () => {
-  syncPosts();
-});
-
-// === Manual command (!syncposts) ===
-client.on("messageCreate", async (message) => {
-  if (message.content === "!syncposts" && message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-    await syncPosts();
-    await message.reply("🔄 Synced post permissions!");
-  }
-});
-
-// === Startup ===
+// === BOT EVENTS ===
 client.once("ready", () => {
-  console.log(`🤖 Logged in as ${client.user.tag}`);
-  syncPosts();
+  console.log(`✅ Logged in as ${client.user.tag}`);
+
+  // Cron job: 1st of each month at 00:00
+  cron.schedule("0 0 1 * *", async () => {
+    const guild = await client.guilds.fetch(GUILD_ID);
+    await guild.members.fetch();
+    await syncPosts(guild);
+    console.log("🔄 Monthly sync complete.");
+  });
 });
 
-client.login(process.env.DISCORD_TOKEN);
+client.on("messageCreate", async (msg) => {
+  if (!msg.content.startsWith("!syncposts")) return;
+  if (!msg.member.permissions.has(PermissionFlagsBits.Administrator)) return;
+
+  const guild = await client.guilds.fetch(GUILD_ID);
+  await guild.members.fetch();
+  await syncPosts(guild);
+  msg.reply("✅ Post channels synced!");
+});
+
+// === START ===
+client.login(process.env.BOT_TOKEN);
