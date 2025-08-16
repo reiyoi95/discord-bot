@@ -46,7 +46,8 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent  // Required to read message content
   ]
 });
 
@@ -132,6 +133,11 @@ client.once("ready", () => {
   console.log(`\n✅ Bot is ready!`);
   console.log(`👤 Logged in as: ${client.user.tag}`);
   console.log(`🌐 Connected to ${client.guilds.cache.size} servers`);
+  
+  // Generate and log invite URL
+  const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${client.user.id}&permissions=268435456&scope=bot%20applications.commands`;
+  console.log(`\n🔗 Invite the bot to your server using this URL:`);
+  console.log(inviteUrl);
 
   // Cron job: 1st of each month at 00:00
   cron.schedule("0 0 1 * *", async () => {
@@ -150,10 +156,18 @@ client.once("ready", () => {
 });
 
 client.on("messageCreate", async (msg) => {
-  if (!msg.content.startsWith("!syncposts")) return;
+  // Debug log for all messages
+  console.log(`📨 Message received: "${msg.content}" from ${msg.author.tag}`);
+  
+  if (!msg.content.startsWith("!syncposts")) {
+    console.log('⏭️ Not a syncposts command, ignoring');
+    return;
+  }
+  
+  console.log('🎯 Syncposts command detected!');
   
   try {
-    if (!msg.member.permissions.has(PermissionFlagsBits.Administrator)) {
+    if (!msg.member?.permissions.has(PermissionFlagsBits.Administrator)) {
       console.log(`⚠️ Non-admin user ${msg.author.tag} attempted to use !syncposts`);
       return msg.reply("❌ You need administrator permissions to use this command.");
     }
